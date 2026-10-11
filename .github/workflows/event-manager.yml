@@ -1,0 +1,25 @@
+name: event-manager
+
+on:
+  push:
+    paths: ["event-manager/**", "go.work*", "scripts/check_coverage.py", "Makefile", ".github/workflows/event-manager.yml"]
+  pull_request:
+    paths: ["event-manager/**", "go.work*", "scripts/check_coverage.py", "Makefile", ".github/workflows/event-manager.yml"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.6'
+          cache-dependency-path: event-manager/go.sum
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+          working-directory: event-manager
+      - run: make event-manager-test-race
+      - run: make event-manager-test-cover
+      - run: docker info
+      - run: make event-manager-test-integration
