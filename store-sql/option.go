@@ -50,7 +50,7 @@ func WithPlugin(plugin gorm.Plugin) Option {
 		}
 		value := reflect.ValueOf(plugin)
 		switch value.Kind() {
-		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 			if value.IsNil() {
 				return errors.New("store-sql plugin is nil")
 			}

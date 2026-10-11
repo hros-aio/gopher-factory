@@ -124,7 +124,8 @@ func TestWithinTxPanicPreservedWhenRollbackFails(t *testing.T) {
 func TestWithinTxRejectsInvalidInputs(t *testing.T) {
 	c, _ := newMockClient(t)
 	assert.Error(t, c.WithinTx(context.Background(), nil))
-	assert.Error(t, c.WithinTx(nil, func(context.Context) error { return nil }))
+	var nilCtx context.Context
+	assert.Error(t, c.WithinTx(nilCtx, func(context.Context) error { return nil }))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	assert.ErrorIs(t, c.WithinTx(ctx, func(context.Context) error { return nil }), context.Canceled)

@@ -41,7 +41,7 @@ func TestNewRejectsInvalidOptionBeforeIO(t *testing.T) {
 func TestNewPingFailureIsWrappedAndRedacted(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	require.NoError(t, err)
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 	cause := errors.New("password=secret")
 	mock.ExpectPing().WillReturnError(cause)
 	c, err := newWithDialector(context.Background(), Config{DSN: testDSN}, postgres.New(postgres.Config{Conn: sqlDB}))
@@ -54,7 +54,9 @@ func TestNewPingFailureIsWrappedAndRedacted(t *testing.T) {
 
 func TestClientPingAndContextBoundDB(t *testing.T) {
 	c, mock := newMockClient(t)
-	ctx := context.WithValue(context.Background(), struct{}{}, "value")
+
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "value")
 	db, err := c.DB(ctx)
 	require.NoError(t, err)
 	assert.Same(t, ctx, db.Statement.Context)
@@ -70,7 +72,7 @@ func TestNewDoesNotMutateCallerConfig(t *testing.T) {
 	cfg := Config{DSN: testDSN}
 	c, err := newWithDialector(context.Background(), cfg, postgres.New(postgres.Config{Conn: sqlDB}))
 	require.NoError(t, err)
-	defer c.Close(context.Background())
+	defer func() { _ = c.Close(context.Background()) }()
 	assert.Zero(t, cfg.MaxOpenConns)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
