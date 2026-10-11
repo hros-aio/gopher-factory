@@ -122,7 +122,9 @@ func (c *Client) DB(ctx context.Context) (*gorm.DB, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.state != stateOpen && !(c.state == stateClosing && tx != nil && tx.active.Load()) {
+
+	closingWithActiveTx := c.state == stateClosing && tx != nil && tx.active.Load()
+	if c.state != stateOpen && !closingWithActiveTx {
 		return nil, ErrClosed
 	}
 	if tx != nil {
@@ -232,7 +234,7 @@ const trackedStatementKey = "storesql:tracked-statement"
 func (c *Client) registerGate() error {
 	before := func(db *gorm.DB) {
 		if err := c.beginOperation(db.Statement.Context, true); err != nil {
-			db.AddError(err)
+			_ = db.AddError(err)
 			return
 		}
 		db.Statement.Settings.Store(trackedStatementKey, true)

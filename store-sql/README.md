@@ -81,7 +81,9 @@ make test-cover
 make test-integration
 ```
 
-The integration target requires Docker or another Testcontainers-compatible runtime.
+The integration target requires a dedicated PostgreSQL database. Set
+`STORE_SQL_TEST_DSN` to its connection string before running `make test-integration`.
+CI starts PostgreSQL as a GitHub Actions service.
 Schema migrations are outside this module.
 
 See the [public API contract](../specs/001-store-sql-postgres/contracts/public-api.md)

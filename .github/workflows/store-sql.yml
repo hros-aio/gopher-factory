@@ -2,21 +2,38 @@ name: store-sql
 
 on:
   push:
+    branches: [master]
   pull_request:
+    branches: [master]
 
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: worker
+          POSTGRES_USER: worker
+          POSTGRES_PASSWORD: worker
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U worker -d worker"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23.6'
           cache-dependency-path: store-sql/go.sum
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.8
-          working-directory: store-sql
+      - run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+      - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: make lint
       - run: make test-race
       - run: make test-cover
       - run: make test-integration
+        env:
+          STORE_SQL_TEST_DSN: postgres://worker:worker@localhost:5432/worker?sslmode=disable

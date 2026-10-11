@@ -22,7 +22,15 @@ func newMockClient(t *testing.T) (*Client, sqlmock.Sqlmock) {
 	mock.ExpectPing()
 	c, err := newWithDialector(context.Background(), Config{DSN: testDSN}, postgres.New(postgres.Config{Conn: sqlDB}))
 	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, c.Close(context.Background())) })
+	t.Cleanup(func() {
+		c.mu.Lock()
+		open := c.state == stateOpen
+		c.mu.Unlock()
+		if open {
+			mock.ExpectClose()
+		}
+		assert.NoError(t, c.Close(context.Background()))
+	})
 	return c, mock
 }
 
@@ -41,7 +49,7 @@ func TestNewRejectsInvalidOptionBeforeIO(t *testing.T) {
 func TestNewPingFailureIsWrappedAndRedacted(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))
 	require.NoError(t, err)
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 	cause := errors.New("password=secret")
 	mock.ExpectPing().WillReturnError(cause)
 	c, err := newWithDialector(context.Background(), Config{DSN: testDSN}, postgres.New(postgres.Config{Conn: sqlDB}))
@@ -54,7 +62,9 @@ func TestNewPingFailureIsWrappedAndRedacted(t *testing.T) {
 
 func TestClientPingAndContextBoundDB(t *testing.T) {
 	c, mock := newMockClient(t)
-	ctx := context.WithValue(context.Background(), struct{}{}, "value")
+
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "value")
 	db, err := c.DB(ctx)
 	require.NoError(t, err)
 	assert.Same(t, ctx, db.Statement.Context)
@@ -70,7 +80,7 @@ func TestNewDoesNotMutateCallerConfig(t *testing.T) {
 	cfg := Config{DSN: testDSN}
 	c, err := newWithDialector(context.Background(), cfg, postgres.New(postgres.Config{Conn: sqlDB}))
 	require.NoError(t, err)
-	defer c.Close(context.Background())
+	defer func() { _ = c.Close(context.Background()) }()
 	assert.Zero(t, cfg.MaxOpenConns)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -87,9 +97,10 @@ func TestClientPingReportsLostConnection(t *testing.T) {
 
 func TestClientCloseWaitsForActiveWork(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	c, _ := newMockClient(t)
+	c, mock := newMockClient(t)
 	ctx := context.Background()
 	require.NoError(t, c.beginOperation(ctx, false))
+	mock.ExpectClose()
 	result := make(chan error, 1)
 	go func() { result <- c.Close(ctx) }()
 	<-c.closingCh
@@ -107,17 +118,19 @@ func TestClientCloseWaitsForActiveWork(t *testing.T) {
 }
 
 func TestBorrowedHandleRejectsOperationsAfterClose(t *testing.T) {
-	c, _ := newMockClient(t)
+	c, mock := newMockClient(t)
 	db, err := c.DB(context.Background())
 	require.NoError(t, err)
+	mock.ExpectClose()
 	require.NoError(t, c.Close(context.Background()))
 	assert.ErrorIs(t, db.Exec("SELECT 1").Error, ErrClosed)
 }
 
 func TestClientCloseDeadlineContinuesClosure(t *testing.T) {
 	defer goleak.VerifyNone(t)
-	c, _ := newMockClient(t)
+	c, mock := newMockClient(t)
 	require.NoError(t, c.beginOperation(context.Background(), false))
+	mock.ExpectClose()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := c.Close(ctx)

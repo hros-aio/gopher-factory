@@ -1,0 +1,9 @@
+.git/
+.cache/
+vendor/
+*.log*
+*.out
+coverage/
+.env*
+Dockerfile*
+.dockerignore
