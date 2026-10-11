@@ -7,13 +7,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
 	storesql "github.com/hros-aio/gopher-factory/store-sql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"gorm.io/gorm"
 )
 
@@ -23,10 +24,19 @@ func (integrationPlugin) Name() string              { return "integration-plugin
 func (integrationPlugin) Initialize(*gorm.DB) error { return nil }
 
 func TestPostgreSQLLifecycleTransactionsAndDuplicateKey(t *testing.T) {
-	dsn := os.Getenv("STORE_SQL_TEST_DSN")
-	require.NotEmpty(t, dsn, "set STORE_SQL_TEST_DSN to a dedicated PostgreSQL test database")
+	testcontainers.SkipIfProviderIsNotHealthy(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	container, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithDatabase("worker"),
+		postgres.WithUsername("worker"),
+		postgres.WithPassword("worker"),
+		postgres.BasicWaitStrategies(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, container.Terminate(context.Background())) })
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
 	var logs bytes.Buffer
 	client, err := storesql.New(ctx, storesql.Config{DSN: dsn},
 		storesql.WithLogger(slog.New(slog.NewJSONHandler(&logs, nil))),
@@ -37,8 +47,6 @@ func TestPostgreSQLLifecycleTransactionsAndDuplicateKey(t *testing.T) {
 	db, err := client.DB(ctx)
 	require.NoError(t, err)
 	assert.Contains(t, db.Config.Plugins, "integration-plugin")
-	require.NoError(t, db.Exec("DROP TABLE IF EXISTS items").Error)
-	t.Cleanup(func() { assert.NoError(t, db.Exec("DROP TABLE IF EXISTS items").Error) })
 	require.NoError(t, db.Exec("CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)").Error)
 
 	require.NoError(t, client.WithinTx(ctx, func(txCtx context.Context) error {
